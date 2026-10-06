@@ -119,19 +119,14 @@
 		regulator-name = "fixed-3.3V";
 	};
 
-	/*
-	 * Skeleton once a binding exists:
-	 *   fmcs {
-	 *       compatible = "h3c,fmcs";
-	 *       spi-controller = <11>;
-	 *       interrupts = <GIC_SPI 26 IRQ_TYPE_LEVEL_HIGH>;
-	 *       fpga-spi-int-gpios = <&en7581_pinctrl 23 GPIO_ACTIVE_HIGH>;
-	 *       status = "okay";
-	 *   };
-	 */
-	fmcs {
+	fmcs: fmcs {
 		compatible = "h3c,fmcs";
-		status = "disabled";
+		spi-controller = <&snfi>;
+		interrupts = <GIC_SPI 26 IRQ_TYPE_LEVEL_HIGH>;
+		fpga-spi-int-gpios = <&en7581_pinctrl 23 GPIO_ACTIVE_HIGH>;
+		fpga-clk-gpios = <&en7581_pinctrl 29 GPIO_ACTIVE_HIGH>;
+		fpga-data-gpios = <&en7581_pinctrl 30 GPIO_ACTIVE_HIGH>;
+		status = "okay";
 	};
 };
 

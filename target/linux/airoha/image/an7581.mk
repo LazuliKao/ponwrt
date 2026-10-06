@@ -360,6 +360,7 @@ define Device/h3c_hm2004-du
 	 kmod-usb3 kmod-usb-ledtrig-usbport \
 	 kmod-phy-airoha-en8811h kmod-airoha-en7572 kmod-airoha-xpon \
 	 airoha-ponctl airoha-pond \
+	 kmod-h3c-fmcs h3c-fttr-tools h3c-fmcs-firmware \
 	 kmod-mt7915e kmod-mt7916-firmware wpad-openssl \
 	 fitblk nand-utils ubi-utils $(AIROHA_USB_STORAGE_PACKAGES)
 endef
