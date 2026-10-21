@@ -404,6 +404,8 @@
 		pcs-handle = <&usb_pcs>;
 		phy-mode = "2500base-x";
 		openwrt,netdev-name = "fttr0";
+		nvmem-cell-names = "mac-address";
+		nvmem-cells = <&base_mac 3>;
 
 		fixed-link {
 			speed = <2500>;
