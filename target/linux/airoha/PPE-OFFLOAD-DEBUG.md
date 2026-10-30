@@ -52,7 +52,41 @@
 不要只在已经 prepare 的旧 build_dir 中增量编译而漏掉新补丁；
 检查实际构建源码包含 `ppe-diag:` 和 `module_param(ppe_debug, bool, 0600)`。
 
-本轮需要提交同步的 PonWrt 文件为本说明和 `931` 补丁；没有执行 git 提交或推送。
+`931` 已在现场部署。后续撤销诊断需要同步本说明、Airoha `932` 补丁，
+以及 `target/linux/generic/pending-6.18/676-netfilter-add-opt-in-flowtable-lifecycle-diagnostics.patch`。
+没有执行 git 提交或推送。
+
+### 规则被快速撤销：第二轮诊断
+
+现场 `931` 日志已证实：双向 `replace-result ret=0`，模板匹配，
+SRAM BIND 提交返回 0；但同一 hash 随后在约 30 ms 至 1 s 内被写为 INVALID。
+尚不能由提交返回值证明硬件实际命中过数据包。
+
+`932` 继续复用默认关闭的 `ppe_debug`，增加：
+
+- `destroy`：flower 删除的 cookie、hash、类型和软件 ib1。
+- `egress-remove`：出口映射变化触发的删除及其调用者。
+- `stats`：idle、当前硬件 timestamp、lastused，核查误判老化。
+
+通用 `676` 增加默认关闭、0600 的
+`/sys/module/nf_flow_table/parameters/flowtable_debug`，日志前缀 `flowtable-diag:`：
+
+- `teardown`：首次 teardown 的调用者与 conntrack 状态。
+- `gc-teardown`：过期、conntrack dying 和剩余超时。
+- `gc-closing`：TCP closing 导致硬件规则撤销。
+- `cleanup`：显式设备清理的设备名和 ifindex，或整表清理。
+
+日志的 `orig` / `reply` 与驱动的 flower cookie 对应；按时间和 cookie 联查。
+两个补丁都不改变老化、关闭、清理和撤销策略，不能通过禁止删除来掩盖问题。
+
+两份补丁均已在临时源码副本以 `patch --fuzz=0` 应用成功；
+使用 GCC 14.4.0、ARM64 Linux 6.18.54 准备树，完成
+`nf_flow_table_core.o` 和带前序诊断的 `airoha_ppe.o` 的 `KCFLAGS=-Werror`
+编译检查。检查目录 `/tmp/fmcs-lifecycle.yi1rR0/`，
+这不是现场 6.18.55 固件的构建或可加载模块。
+
+当前服务器 `/data/wrt_release/ponwrt-an7581` 尚无匹配现场的 prepared kernel；
+旧的 `ponwrt-hm2004-du` 树已不存在。必须重新构建匹配固件后再执行第二轮诊断。
 
 ## 部署后的无上联验证
 
@@ -68,21 +102,53 @@
     set -e
     p=/sys/module/airoha_eth/parameters/ppe_debug
     test -w "$p"
+    q=/sys/module/nf_flow_table/parameters/flowtable_debug
+    test -w "$q"
     old=$(cat "$p")
-    trap 'printf "%s\n" "$old" > "$p"' EXIT
+    oldq=$(cat "$q")
+    trap 'printf "%s\n" "$old" > "$p"; printf "%s\n" "$oldq" > "$q"' EXIT
     trap 'exit 1' HUP INT TERM
     printf 'Y\n' > "$p"
+    printf 'Y\n' > "$q"
     sh /tmp/routed-offload-probe.sh \
         74ADCB3BA21D 1C94685DF998 \
-        192.168.1.120 192.168.1.244 192.168.1.1 6 300
+        192.168.1.120 192.168.1.244 192.168.1.1 24 300
 )
-dmesg | grep 'ppe-diag:'
+dmesg | grep -E 'ppe-diag:|flowtable-diag:'
 ```
 
 另一个 SSH 会话可在测试期间采集 `ppe/config`、`ppe/entries`、`ppe/bind`、
 对应 conntrack 项与 nft counters。不要以测试结束后消失的短连接判断绑定失败。
 保留本轮时间范围内日志，按 cookie、五元组、hash 关联两个方向。
 结束后核实参数恢复、mask 为 0、测试 nft table 和两端临时路由清理完成。
+
+以上 mask 24 仅对应当前两个 HL202 位于 fttr4/fttr5（ONU ID 3/4）。
+每次重注册或重启后重新核查槽位，不能沿用历史 mask 6。
+
+### 当前现场阻塞
+
+一次子猫 tcpdump 后台抓包尝试后，`74ADCB3BA21D` 的 MQTT exec 不再回复，
+但 ping、光链路仍正常。停止继续向该通道追加测试；测试脚本已移除抓包选项。
+主设备 mask=0、ppe_debug=N、redirects=1，临时 nft table 已删除；
+另一端的临时路由已删除。该子猫的临时路由删除尚未得到执行确认。
+恢复命令通道后，先核查并仅删除本次测试的精确路由：
+
+```sh
+ip route show table 300 exact 192.168.1.244/32
+# 仅在存在以下同配置项时删除：
+ip route del table 300 192.168.1.244/32 via 192.168.1.1 dev br0 metric 42760
+```
+
+MQTT exec 超时不取消子猫命令，也不能据此声称清理成功。
+目前没有通过重启子猫或切断光链路强行恢复。
+
+## 带宽验收
+
+先完成双向 BIND 持续存在、实际命中、正确 VID 和撤销回退，再测带宽。
+现有 16 MiB / 每秒 1 MiB 的探测只用于观察生命周期，不是吞吐基准。
+满带宽测试需持续流量、足够性能的两端和 CPU/吞吐对照；子猫自身生成数据也可能成为瓶颈。
+多 ONU 共享 FTTR 光链路与主设备 2.5G SerDes，分别记录单对、双向并发和多对的总吞吐，
+以实测光链路和端口可用容量为上限，不能把所有子设备端口速率相加作为共享链路保证。
 
 定位顺序：
 
